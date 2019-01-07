@@ -263,11 +263,12 @@ def solve_gain(data, cutoff=0, cross_pol=True, normalize=True, rank=1, niter=5, 
 
 class TransitTracker(object):
 
-    def __init__(self, nsigma=3.0, extend_night=1800.0):
+    def __init__(self, nsigma=3.0, extend_night=1800.0, shift=0.0):
 
         self._entries = {}
         self._nsigma = nsigma
         self._extend_night = extend_night
+        self._shift = shift
 
     def add_file(self, filename):
 
@@ -289,6 +290,8 @@ class TransitTracker(object):
         for name, src in self.iteritems():
 
             src_ra, src_dec = ephemeris.object_coords(src.body, date=timestamp0, deg=True)
+
+            src_ra = (src_ra + src.shift) % 360.0
 
             # Determine if any times in this file fall
             # in a window around transit of this source
@@ -359,6 +362,7 @@ class TransitTracker(object):
         is_daytime = 0
 
         src_ra, src_dec = ephemeris.object_coords(src.body, date=ephemeris.csd_to_unix(csd), deg=True)
+        src_ra = (src_ra + src.shift) % 360.0
 
         transit_start = ephemeris.csd_to_unix(csd + (src_ra - src.window) / 360.0)
         transit_end = ephemeris.csd_to_unix(csd + (src_ra + src.window) / 360.0)
@@ -408,12 +412,14 @@ class TransitTracker(object):
             else:
                 ValueError("Item must be skyfield object or tuple (ra, dec).")
 
-            #window = self._nsigma * cal_utils.guess_fwhm(400.0, pol='X', dec=body.dec.radians, sigma=True)
-            window = self._nsigma * utils.get_window(400.0, pol='X', dec=body.dec.radians, deg=True)
+            win = utils.get_window(400.0, pol='X', dec=body.dec.radians, deg=True)
+            window = self._nsigma * win
+            shift = self._shift * win
 
             self._entries[key] = NameSpace()
             self._entries[key].body = body
             self._entries[key].window = window
+            self._entries[key].shift = shift
             self._entries[key].files = {}
             self._entries[key].file_span = {}
 
@@ -439,6 +445,7 @@ class TransitTracker(object):
     def remove(self, key):
 
         self._entries.pop(key)
+
 
 ###################################################
 # main routine
@@ -474,7 +481,7 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
     nfiles = len(acq_files)
 
     # Create transit tracker
-    transit_tracker = TransitTracker(nsigma=config.nsigma)
+    transit_tracker = TransitTracker(nsigma=config.nsigma, shift=config.shift)
 
     for name in config.all_sources:
         transit_tracker[name] = FluxCatalog[name].skyfield
@@ -511,7 +518,17 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
 
     npol = pol.size
 
-    # Create file suffix
+    # Create file prefix and suffix
+    prefix = []
+
+    prefix.append("gain_solutions")
+
+    if config.output_prefix is not None:
+        prefix.append(config.output_prefix)
+
+    prefix = '_'.join(prefix)
+
+
     suffix = []
 
     suffix.append("pol_%s" % '_'.join(pol))
@@ -543,7 +560,7 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
 
         nfiles = len(files)
 
-        output_file = os.path.join(config.output_dir, "gain_solutions_%s_CSD_%d_%s.pickle"  % (src, csd, suffix))
+        output_file = os.path.join(config.output_dir, "%s_%s_CSD_%d_%s.pickle"  % (prefix, src, csd, suffix))
 
         mlog.info("Saving to:  %s" % output_file)
 
