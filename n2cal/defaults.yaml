@@ -1,0 +1,27 @@
+n2cal:
+    data_dir: "/mnt/gong/archive"
+    acq: "20180921T004045Z_chimeN2_corr"
+    output_dir: "/mnt/gong/ssiegel/test/eigen"
+    bad_input_file: "201809_static_bad_input_list.pickle"
+    all_sources:
+        - "CYG_A"
+        - "CAS_A"
+        - "TAU_A"
+        - "VIR_A"
+    niceness: 10
+    nsigma: 2.5
+    freq_start:
+    freq_stop:
+    neigen: 16
+    niter: 10
+    offsets:
+        - 32
+        - 64
+        - 128
+        - 192
+        - 256
+    cross_pol: True 
+    sep_pol: False
+    normalize: True
+    good_csd:
+        - 1784
