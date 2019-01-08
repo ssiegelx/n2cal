@@ -1,0 +1,28 @@
+n2cal:
+    data_dir: "/mnt/gong/archive"
+    acq: "20180921T004045Z_chimeN2_corr"
+    output_dir: "/mnt/gong/ssiegel/test/eigen"
+    output_prefix: "multi_offset_dynamic_flag"
+    bad_input_file:
+    all_sources:
+        - "CYG_A"
+        - "CAS_A"
+        - "TAU_A"
+    niceness: 10
+    nsigma: 0.05
+    shift: 0.0
+    freq_start:
+    freq_stop:
+    neigen: 16
+    niter: 10
+    offsets:
+        - 32
+        - 64
+        - 128
+        - 192
+        - 256
+    cross_pol: True
+    sep_pol: False
+    normalize: True
+    good_csd:
+        - 1784
