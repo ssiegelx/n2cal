@@ -14,6 +14,10 @@ from calibration import utils
 
 import log
 
+import caput.time as ctime
+import time
+import skyfield.api
+
 from ch_util import tools, ephemeris, andata
 from ch_util.fluxcat import FluxCatalog
 
@@ -260,6 +264,8 @@ def solve_gain(data, cutoff=0, cross_pol=True, normalize=True, rank=1, niter=5, 
 
     return evals, gain, gain_error
 
+def _correct_phase_wrap(phi):
+    return ((phi + np.pi) % (2.0 * np.pi)) - np.pi
 
 def sun_coord(unix_time, deg=True):
 
@@ -326,7 +332,7 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
     # Determine time range of each file
     findex = []
     tindex = []
-    for ii, filename in enumerate(files):
+    for ii, filename in enumerate(acq_files):
         subdata = andata.CorrData.from_acq_h5(filename, datasets=())
 
         findex += [ii] * subdata.ntime
@@ -338,7 +344,7 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
     # Determine transits within these files
     transits = []
 
-    data = andata.CorrData.from_acq_h5(files, datasets=())
+    data = andata.CorrData.from_acq_h5(acq_files, datasets=())
 
     solar_rise = ephemeris.solar_rising(data.time[0] - 24.0 * 3600.0, end_time=data.time[-1])
 
@@ -365,13 +371,11 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
 
                 if this_file.size > 0:
 
-                    file_list.append(files[ii])
-                    this_tindex = this_tindex[this_file]
-
-                    tindices.append(this_tindex)
+                    file_list.append(acq_files[ii])
+                    tindices.append(this_tindex[this_file])
 
             date = ephemeris.unix_to_datetime(rr).strftime('%Y%m%dT%H%M%SZ')
-            transits.append((date, tval, file_list, trng))
+            transits.append((date, tval, file_list, tindices))
 
     # Specify some parameters for algorithm
     N = 2048
@@ -387,7 +391,7 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
         prod_ss = []
         prod_ee = []
     else:
-        rank = 2
+        rank = 8
         cross_pol = config.cross_pol
         pol = np.array(['all'])
 
