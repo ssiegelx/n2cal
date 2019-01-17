@@ -118,7 +118,7 @@ def rankN_approx(A, rank=1):
     return np.dot(evecs, evals[:, np.newaxis] * evecs.T.conj())
 
 
-def eigh_no_diagonal(A, niter=5, rank=1, diag_index=None, eigvals=None):
+def eigh_no_diagonal(A, A0=None, niter=5, rank=1, diag_index=None, eigvals=None):
     """Eigenvalue decomposition ignoring the diagonal elements.
 
     The diagonal elements are iteratively replaced with those from a rank=1 approximation.
@@ -140,7 +140,13 @@ def eigh_no_diagonal(A, niter=5, rank=1, diag_index=None, eigvals=None):
 
     Ac = A.copy()
 
-    if niter > 0:
+    if A0 is not None:
+
+        print "Using input array to fill diagonals:  ", A0.shape
+
+        Ac[diag_index] = A0[diag_index]
+
+    elif niter > 0:
 
         if diag_index is None:
             diag_index  = np.diag_indices(Ac.shape[0])
@@ -192,7 +198,8 @@ def _extract_diagonal(utmat, axis=1):
     return diag_array
 
 
-def solve_gain(data, cutoff=0, cross_pol=True, normalize=True, rank=1, niter=5, neigen=1):
+def solve_gain(data, cutoff=0, cross_pol=True, normalize=True, rank=1, niter=5, neigen=1,
+                     time_iter=False, eigenvalue=None, eigenvector=None):
 
     # Turn into numpy array to avoid any unfortunate indexing issues
     data = data[:].view(np.ndarray)
@@ -235,8 +242,17 @@ def solve_gain(data, cutoff=0, cross_pol=True, normalize=True, rank=1, niter=5, 
     # Compute diag indices
     diag_index = coupled_indices(cutoff=cutoff, cross_pol=cross_pol, N=nfeed)
 
+    # Calculate low rank approximation from. previous decomposition
+    cd0 = None
+    if time_iter and (eigenvalue is not None) and (eigenvector is not None):
+
+        print "Low rank shape: ", eigenvector[:, -rank:].shape, eigenvalue[-rank:, np.newaxis]
+
+        cd0 = np.dot(eigenvector[:, -rank:],
+                     eigenvalue[-rank:, np.newaxis] * eigenvector[:, -rank:].T.conj())
+
     # Solve for eigenvectors and eigenvalues
-    evals, evecs = eigh_no_diagonal(cd, rank=rank, niter=niter, diag_index=diag_index)
+    evals, evecs = eigh_no_diagonal(cd, A0=cd0, rank=rank, niter=niter, diag_index=diag_index)
 
     # Construct gain solutions
     if evals[-1] > 0:
@@ -258,7 +274,7 @@ def solve_gain(data, cutoff=0, cross_pol=True, normalize=True, rank=1, niter=5, 
         gain_error = np.squeeze(gain_error, axis=-1)
 
 
-    return evals, gain, gain_error
+    return evals, evecs, gain, gain_error
 
 
 class TransitTracker(object):
@@ -533,7 +549,10 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
 
     suffix.append("pol_%s" % '_'.join(pol))
 
-    suffix.append("niter_%d" % config.niter)
+    if config.time_iter:
+        suffix.append("time_iter")
+    else:
+        suffix.append("niter_%d" % config.niter)
 
     if cross_pol:
         suffix.append("zerocross")
@@ -629,6 +648,7 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
             mlog.info("Freq %d of %d." % (ff+1, nfreq))
 
             cnt = 0
+            ev, evec = None, None
 
             # Loop over files
             for ii, filename in enumerate(files):
@@ -679,8 +699,9 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
 
                                 mlog.info("pol %s, rank %d, niter %d, offset %d, cross_pol %s, neigen %d" % (pol[pp], rank, config.niter, off, cross_pol, config.neigen))
 
-                                ev, rr, rre = solve_gain(visp, cutoff=off, cross_pol=cross_pol, normalize=config.normalize,
-                                                               rank=rank, niter=config.niter, neigen=config.neigen)
+                                ev, evec, rr, rre = solve_gain(visp, cutoff=off, cross_pol=cross_pol, normalize=config.normalize,
+                                                               niter=config.niter, neigen=config.neigen, rank=rank,
+                                                               time_iter=config.time_iter, eigenvalue=ev, eigenvector=evec)
 
                                 ores['evalue'][oo, ff, cnt, input_pol] = ev
                                 ores['resp'][oo, ff, cnt, input_pol, :] = rr
@@ -693,8 +714,9 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
 
                             mlog.info("rank %d, niter %d, offset %d, cross_pol %s, neigen %d" % (rank, config.niter, off, cross_pol, config.neigen))
 
-                            ev, rr, rre = solve_gain(vis, cutoff=off, cross_pol=cross_pol, normalize=config.normalize,
-                                                          rank=rank, niter=config.niter, neigen=config.neigen)
+                            ev, evec, rr, rre = solve_gain(vis, cutoff=off, cross_pol=cross_pol, normalize=config.normalize,
+                                                          niter=config.niter, neigen=config.neigen, rank=rank,
+                                                          time_iter=config.time_iter, eigenvalue=ev, eigenvector=evec)
 
                             ores['evalue'][oo, ff, cnt, :] = ev
                             ores['resp'][oo, ff, cnt, :, :] = rr
