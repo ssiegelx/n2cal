@@ -47,6 +47,30 @@ DEFAULT_LOGGING = {
 # ancillary routines
 ###################################################
 
+def diag_indices(cutoff=0, cross_pol=True, N=2048, cyl_size=256):
+
+    row = []
+    col = []
+
+    offsets = [0]
+    if cross_pol:
+        offsets += [-cyl_size, cyl_size]
+
+    for ii in range(0, N):
+
+        for off in offsets:
+
+            aa = max(0, off + ii - cutoff)
+            bb = min(N, off + ii + cutoff + 1)
+
+            for jj in range(aa, bb):
+
+                row.append(ii)
+                col.append(jj)
+
+    return (np.array(row), np.array(col))
+
+
 def coupled_indices(cutoff=0, cross_pol=True, N=2048, cyl_size=256):
 
     Ncyl = N / cyl_size
@@ -196,7 +220,8 @@ def _extract_diagonal(utmat, axis=1):
     return diag_array
 
 
-def solve_gain(data, cutoff=0, intracyl_diag=False, cross_pol=True, normalize=True, rank=1, niter=5, neigen=1,
+def solve_gain(data, cutoff=0, intracyl_diag=False, cross_pol=True, normalize=True,
+                     rank=1, niter=5, neigen=1, cyl_size=256,
                      time_iter=False, eigenvalue=None, eigenvector=None):
 
     # Turn into numpy array to avoid any unfortunate indexing issues
@@ -208,11 +233,6 @@ def solve_gain(data, cutoff=0, intracyl_diag=False, cross_pol=True, normalize=Tr
     # If not set, create the list of included feeds (i.e. all feeds)
     feeds = np.arange(tfeed)
     nfeed = len(feeds)
-
-    if intracyl_diag:
-        cyl_size = 256
-    else:
-        cyl_size = nfeed
 
     # Create empty arrays to store the outputs
     gain = np.zeros((nfeed, neigen), np.complex64)
@@ -243,7 +263,10 @@ def solve_gain(data, cutoff=0, intracyl_diag=False, cross_pol=True, normalize=Tr
         raise ValueError
 
     # Compute diag indices
-    diag_index = coupled_indices(cutoff=cutoff, cross_pol=cross_pol, N=nfeed, cyl_size=cyl_size)
+    if intracyl_diag:
+        diag_index = coupled_indices(cutoff=cutoff, cross_pol=cross_pol, N=nfeed, cyl_size=cyl_size)
+    else:
+        diag_index = diag_indices(cutoff=cutoff, cross_pol=cross_pol, N=nfeed, cyl_size=cyl_size)
 
     # Calculate low rank approximation from previous decomposition
     cd0 = None
@@ -740,7 +763,8 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
 
                                 ev, evec, rr, rre = solve_gain(visp, cutoff=off, intracyl_diag=config.intracyl_diag,
                                                                cross_pol=cross_pol, normalize=config.normalize,
-                                                               niter=config.niter, neigen=config.neigen, rank=rank,
+                                                               niter=config.niter, neigen=config.neigen,
+                                                               rank=rank, cyl_size=config.cyl_size,
                                                                time_iter=config.time_iter, eigenvalue=ev, eigenvector=evec)
 
                                 ores['evalue'][oo, ff, cnt, input_pol] = ev
@@ -757,7 +781,8 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
 
                             ev, evec, rr, rre = solve_gain(vis, cutoff=off, intracyl_diag=config.intracyl_diag,
                                                           cross_pol=cross_pol, normalize=config.normalize,
-                                                          niter=config.niter, neigen=config.neigen, rank=rank,
+                                                          niter=config.niter, neigen=config.neigen,
+                                                          rank=rank, cyl_size=config.cyl_size,
                                                           time_iter=config.time_iter, eigenvalue=ev, eigenvector=evec)
 
                             ores['evalue'][oo, ff, cnt, :] = ev
@@ -773,12 +798,12 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
 
         # Save to pickle file
         with h5py.File(output_file, 'w') as handler:
-            
+
             handler.attrs['src'] = src
             handler.attrs['csd'] = csd
-            
+
             for key, val in ores.iteritems():
-                
+
                 if isinstance(val, dict):
                     group = handler.create_group(key)
                     for kk, vv in val.iteritems():

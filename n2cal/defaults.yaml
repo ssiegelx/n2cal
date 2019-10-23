@@ -11,6 +11,7 @@ n2cal:
         - "TAU_A"
         - "VIR_A"
     niceness: 10
+    cyl_size: 256
     time_iter: False
     nsigma: 2.5
     shift: 0.0
