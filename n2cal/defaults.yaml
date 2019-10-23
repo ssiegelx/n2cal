@@ -1,6 +1,7 @@
 n2cal:
     data_dir: "/mnt/gong/archive"
     acq: "20180921T004045Z_chimeN2_corr"
+    cal_acq: "20180921T004036Z_chimecal_corr"
     output_dir: "/mnt/gong/ssiegel/test/eigen"
     output_prefix: 
     bad_input_file: 
@@ -10,6 +11,7 @@ n2cal:
         - "TAU_A"
         - "VIR_A"
     niceness: 10
+    time_iter: False
     nsigma: 2.5
     shift: 0.0
     freq_start:
@@ -22,8 +24,10 @@ n2cal:
         - 128
         - 192
         - 256
+    intracyl_diag: True
     cross_pol: True 
     sep_pol: False
     normalize: True
+    single_csd: False
     good_csd:
         - 1784

@@ -1,23 +1,21 @@
 import os
 import sys
-from glob import glob
 import pickle
 import argparse
 import time
+import glob
 
 import numpy as np
 import h5py
 import scipy.linalg as la
 
-from pychfpga import NameSpace, load_yaml_config
-from calibration import utils
+from wtl.namespace import NameSpace
+from wtl.config import load_yaml_config
+import wtl.log as log
 
-import log
-
-from ch_util import tools, ephemeris, andata
+from ch_util import tools, ephemeris, andata, cal_utils
 from ch_util.fluxcat import FluxCatalog
 
-sys.path.insert(0, "/home/ssiegel/ch_pipeline/venv/src/draco")
 from draco.util import _fast_tools
 
 ###################################################
@@ -198,7 +196,7 @@ def _extract_diagonal(utmat, axis=1):
     return diag_array
 
 
-def solve_gain(data, cutoff=0, cross_pol=True, normalize=True, rank=1, niter=5, neigen=1,
+def solve_gain(data, cutoff=0, intracyl_diag=False, cross_pol=True, normalize=True, rank=1, niter=5, neigen=1,
                      time_iter=False, eigenvalue=None, eigenvector=None):
 
     # Turn into numpy array to avoid any unfortunate indexing issues
@@ -210,6 +208,11 @@ def solve_gain(data, cutoff=0, cross_pol=True, normalize=True, rank=1, niter=5, 
     # If not set, create the list of included feeds (i.e. all feeds)
     feeds = np.arange(tfeed)
     nfeed = len(feeds)
+
+    if intracyl_diag:
+        cyl_size = 256
+    else:
+        cyl_size = nfeed
 
     # Create empty arrays to store the outputs
     gain = np.zeros((nfeed, neigen), np.complex64)
@@ -240,9 +243,9 @@ def solve_gain(data, cutoff=0, cross_pol=True, normalize=True, rank=1, niter=5, 
         raise ValueError
 
     # Compute diag indices
-    diag_index = coupled_indices(cutoff=cutoff, cross_pol=cross_pol, N=nfeed)
+    diag_index = coupled_indices(cutoff=cutoff, cross_pol=cross_pol, N=nfeed, cyl_size=cyl_size)
 
-    # Calculate low rank approximation from. previous decomposition
+    # Calculate low rank approximation from previous decomposition
     cd0 = None
     if time_iter and (eigenvalue is not None) and (eigenvector is not None):
 
@@ -428,7 +431,7 @@ class TransitTracker(object):
             else:
                 ValueError("Item must be skyfield object or tuple (ra, dec).")
 
-            win = utils.get_window(400.0, pol='X', dec=body.dec.radians, deg=True)
+            win = cal_utils.get_window(400.0, pol='X', dec=body.dec.radians, deg=True)
             window = self._nsigma * win
             shift = self._shift * win
 
@@ -493,8 +496,19 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
                   (current_niceness, config.niceness, os.nice(0)))
 
     # Find acquisition files
-    acq_files = sorted(glob(os.path.join(config.data_dir, config.acq, "*.h5")))
+    acq_files = sorted(glob.glob(os.path.join(config.data_dir, config.acq, "*.h5")))
     nfiles = len(acq_files)
+
+    # Find cal files
+    if config.time_iter and (config.cal_acq is not None):
+        cal_files = sorted(glob.glob(os.path.join(config.data_dir, config.cal_acq, "*.h5")))
+        ncal_files = len(cal_files)
+        mlog.info('Found %d chimecal files.' % ncal_files)
+
+        cal_rdr = andata.CorrData.from_acq_h5(cal_files, datasets=())
+
+    else:
+        ncal_files = 0
 
     # Create transit tracker
     transit_tracker = TransitTracker(nsigma=config.nsigma, shift=config.shift)
@@ -650,6 +664,31 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
             cnt = 0
             ev, evec = None, None
 
+            if ncal_files > 0:
+
+                ifc = int(np.argmin(np.abs(freq[ff] - cal_rdr.freq)))
+
+                diff_time = np.abs(data.time[cnt] - cal_rdr.time)
+                good_diff = np.flatnonzero(np.isfinite(diff_time))
+                itc = int(good_diff[np.argmin(diff_time[good_diff])]) - 1
+
+                print good_diff.size
+                print data.time[cnt], cal_rdr.time[itc]
+
+                cal = andata.CorrData.from_acq_h5(cal_files, datasets=['eval', 'evec'], freq_sel=ifc, start=itc, stop=itc+2)
+
+                print cal.time
+
+                mlog.info("Using eigenvectors from %d time sample (%0.2f sec offset) to initialize backfill." %
+                         (itc, cal.time[0] - data.time[cnt]))
+
+                mlog.info("Using eigenvectors for freq %0.2f MHz (for %0.2f MHz)." % (cal.freq[0], freq[ff]))
+
+                ev = cal['eval'][0, ::-1, 0]
+                evec = cal['evec'][0, ::-1, :, 0].T
+
+                mlog.info("Initial eval shape %s, evec shape %s" % (str(ev.shape), str(evec.shape)))
+
             # Loop over files
             for ii, filename in enumerate(files):
 
@@ -697,9 +736,11 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
                             # Loop over offsets
                             for oo, off in enumerate(config.offsets):
 
-                                mlog.info("pol %s, rank %d, niter %d, offset %d, cross_pol %s, neigen %d" % (pol[pp], rank, config.niter, off, cross_pol, config.neigen))
+                                mlog.info("pol %s, rank %d, niter %d, offset %d, cross_pol %s, neigen %d, intracyl_diag %d" %
+                                         (pol[pp], rank, config.niter, off, cross_pol, config.neigen, int(config.intracyl_diag)))
 
-                                ev, evec, rr, rre = solve_gain(visp, cutoff=off, cross_pol=cross_pol, normalize=config.normalize,
+                                ev, evec, rr, rre = solve_gain(visp, cutoff=off, intracyl_diag=config.intracyl_diag,
+                                                               cross_pol=cross_pol, normalize=config.normalize,
                                                                niter=config.niter, neigen=config.neigen, rank=rank,
                                                                time_iter=config.time_iter, eigenvalue=ev, eigenvector=evec)
 
@@ -712,9 +753,11 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
                         # Loop over offsets
                         for oo, off in enumerate(config.offsets):
 
-                            mlog.info("rank %d, niter %d, offset %d, cross_pol %s, neigen %d" % (rank, config.niter, off, cross_pol, config.neigen))
+                            mlog.info("rank %d, niter %d, offset %d, cross_pol %s, neigen %d, intracyl_diag %d" %
+                                     (rank, config.niter, off, cross_pol, config.neigen, int(config.intracyl_diag)))
 
-                            ev, evec, rr, rre = solve_gain(vis, cutoff=off, cross_pol=cross_pol, normalize=config.normalize,
+                            ev, evec, rr, rre = solve_gain(vis, cutoff=off, intracyl_diag=config.intracyl_diag,
+                                                          cross_pol=cross_pol, normalize=config.normalize,
                                                           niter=config.niter, neigen=config.neigen, rank=rank,
                                                           time_iter=config.time_iter, eigenvalue=ev, eigenvector=evec)
 
@@ -735,7 +778,8 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
             pickle.dump(ores, handle)
 
         # Remove this source from list
-        config.all_sources.remove(src)
+        if config.single_csd:
+            config.all_sources.remove(src)
 
 
 if __name__ == "__main__":
