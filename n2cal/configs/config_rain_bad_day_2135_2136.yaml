@@ -1,0 +1,29 @@
+n2cal:
+    data_dir: "/mnt/gong/archive"
+    acq: "20190910T143236Z_chimeN2_corr"
+    cal_acq: 
+    output_dir: "/scratch-fast/ssiegel/n2cal/rain"
+    output_prefix: "with_bad_gain_flags"
+    bad_input_file: "/scratch-fast/ssiegel/n2cal/rain/bad_inputs_from_gain_bad_csd_2136.pickle"
+    all_sources:
+        - "CYG_A"
+    niceness: 10
+    cyl_size: 256
+    time_iter: False
+    nsigma: 0.5
+    shift: 0.0
+    freq_start:
+    freq_stop:
+    neigen: 16
+    niter: 10
+    offsets:
+        - 32
+    time_iter: False
+    intracyl_diag: False
+    cross_pol: True
+    sep_pol: False
+    normalize: False
+    single_csd: False
+    good_csd:
+        - 2135
+        - 2136
