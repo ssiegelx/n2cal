@@ -644,13 +644,12 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
 
         # Create arrays to hold the results
         ores = {}
-        ores['src'] = src
-        ores['csd'] = csd
-        ores['ra'] = ra
-        ores['time'] = data.time
-        ores['freq'] = freq
-        ores['offsets'] = config.offsets
-        ores['pol'] = pol
+        ores['index_map'] = {}
+        ores['index_map']['ra'] = ra
+        ores['index_map']['time'] = data.time
+        ores['index_map']['freq'] = freq
+        ores['index_map']['offsets'] = np.array(config.offsets)
+        ores['index_map']['pol'] = pol
 
         ores['evalue'] = np.zeros((noffset, nfreq, ntime, N), dtype=np.float32)
         ores['resp'] = np.zeros((noffset, nfreq, ntime, N, config.neigen),  dtype=np.complex64)
@@ -773,9 +772,19 @@ def main(config_file=None, logging_params=DEFAULT_LOGGING):
 
 
         # Save to pickle file
-        with open(output_file, 'w') as handle:
-
-            pickle.dump(ores, handle)
+        with h5py.File(output_file, 'w') as handler:
+            
+            handler.attrs['src'] = src
+            handler.attrs['csd'] = csd
+            
+            for key, val in ores.iteritems():
+                
+                if isinstance(val, dict):
+                    group = handler.create_group(key)
+                    for kk, vv in val.iteritems():
+                        group.create_dataset(kk, data=vv[:])
+                else:
+                    handler.create_dataset(key, data=val[:])
 
         # Remove this source from list
         if config.single_csd:
